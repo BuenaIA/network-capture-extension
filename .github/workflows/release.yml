@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build extension ZIP
+        run: |
+          VERSION=$(jq -r '.version' manifest.json)
+          ZIP="network-capture-extension-v${VERSION}.zip"
+          zip -r "$ZIP" . \
+            -x ".git/*" ".github/*" "wiki/*" "dist/*" ".gitignore"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${VERSION}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" \
+              --title "Network Capture Extension $TAG" \
+              --generate-notes
+          fi

@@ -1,0 +1,64 @@
+<svg
+  viewBox="0 0 200 260"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <!-- TOP -->
+  <polygon points="22,8 62,8 62,42" fill="#3E6EBC"></polygon>
+  <polygon points="22,8 62,42 22,52" fill="#2E5AAE"></polygon>
+  <polygon points="62,8 100,8 106,38" fill="#5B8DEF"></polygon>
+  <polygon points="62,8 106,38 62,42" fill="#5088E2"></polygon>
+  <polygon points="100,8 130,12 106,38" fill="#4A7ADB"></polygon>
+  <!-- UPPER CURVE -->
+  <polygon points="130,12 152,28 130,52" fill="#3868C4"></polygon>
+  <polygon points="130,12 130,52 106,38" fill="#4478D6"></polygon>
+  <polygon points="152,28 158,52 130,52" fill="#2E5AAE"></polygon>
+  <!-- UPPER BUMP BODY -->
+  <polygon points="62,42 106,38 106,68" fill="#6B9CF5"></polygon>
+  <polygon points="62,42 106,68 62,74" fill="#5B8DEF"></polygon>
+  <polygon points="106,38 130,52 106,68" fill="#5088E2"></polygon>
+  <polygon points="130,52 158,52 150,72" fill="#2855A0"></polygon>
+  <polygon points="130,52 150,72 106,68" fill="#3A6BC9"></polygon>
+  <!-- LEFT STRIP UPPER -->
+  <polygon points="22,52 62,42 62,74" fill="#4878C8"></polygon>
+  <polygon points="22,52 62,74 22,106" fill="#2E5AAE"></polygon>
+  <polygon points="62,74 22,106 62,106" fill="#4878C8"></polygon>
+  <!-- UPPER TO WAIST -->
+  <polygon points="62,74 106,68 106,92" fill="#5B8DEF"></polygon>
+  <polygon points="62,74 106,92 62,106" fill="#5088E2"></polygon>
+  <polygon points="106,68 150,72 132,84" fill="#3060BB"></polygon>
+  <polygon points="106,68 132,84 106,92" fill="#4478D6"></polygon>
+  <!-- WAIST RIGHT -->
+  <polygon points="132,84 106,92 92,106" fill="#4A7ADB"></polygon>
+  <!-- WAIST CENTER -->
+  <polygon points="22,106 62,106 62,140" fill="#2855A0"></polygon>
+  <polygon points="22,106 62,140 22,160" fill="#1E468C"></polygon>
+  <polygon points="62,106 106,92 92,106" fill="#6B9CF5"></polygon>
+  <polygon points="62,106 92,106 62,140" fill="#5B8DEF"></polygon>
+  <polygon points="92,106 106,120 62,140" fill="#5088E2"></polygon>
+  <!-- LOWER BUMP TOP -->
+  <polygon points="62,140 106,120 106,148" fill="#4A7ADB"></polygon>
+  <polygon points="62,140 106,148 62,180" fill="#4878C8"></polygon>
+  <polygon points="106,120 136,130 136,162" fill="#3A6BC9"></polygon>
+  <polygon points="106,120 136,162 106,148" fill="#4478D6"></polygon>
+  <polygon points="136,130 156,150 136,162" fill="#2E5AAE"></polygon>
+  <polygon points="156,150 164,180 136,162" fill="#223A64"></polygon>
+  <!-- LEFT STRIP LOWER -->
+  <polygon points="22,160 62,140 62,180" fill="#3060BB"></polygon>
+  <polygon points="22,160 62,180 22,200" fill="#2855A0"></polygon>
+  <!-- LOWER BUMP BODY -->
+  <polygon points="62,180 106,148 106,188" fill="#5088E2"></polygon>
+  <polygon points="106,148 136,162 106,188" fill="#3868C4"></polygon>
+  <polygon points="136,162 164,180 156,206" fill="#1A3052"></polygon>
+  <polygon points="136,162 156,206 106,188" fill="#2E5AAE"></polygon>
+  <!-- BOTTOM -->
+  <polygon points="62,180 106,188 62,218" fill="#4478D6"></polygon>
+  <polygon points="22,200 62,180 62,218" fill="#3A6BC9"></polygon>
+  <polygon points="22,200 62,218 22,226" fill="#2E5AAE"></polygon>
+  <polygon points="22,226 62,218 100,226" fill="#3060BB"></polygon>
+  <polygon points="62,218 106,188 106,214" fill="#4A7ADB"></polygon>
+  <polygon points="62,218 106,214 100,226" fill="#3868C4"></polygon>
+  <polygon points="106,188 156,206 136,220" fill="#1E3258"></polygon>
+  <polygon points="106,188 136,220 106,214" fill="#2E5AAE"></polygon>
+  <polygon points="100,226 106,214 136,220" fill="#2855A0"></polygon>
+</svg>

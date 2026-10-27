@@ -1,0 +1,1 @@
+_Network Capture Extension · Producto de [BuenaIA](https://github.com/BuenaIA) · Licencia GPL-3.0 · [Repo](https://github.com/BuenaIA/network-capture-extension) · [Issues](https://github.com/BuenaIA/network-capture-extension/issues)_

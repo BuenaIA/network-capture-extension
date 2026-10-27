@@ -1,0 +1,27 @@
+/* Identidad visual BuenaIA compartida por popup y panel.
+   Para retematizar la extensión, cambia solo los valores de este bloque. */
+:root {
+  --bb-navy: #071426;
+  --bb-navy-2: #0f1f38;
+  --bb-navy-3: #13284a;
+  --bb-line: #1e3258;
+  --bb-blue: #2e5aae;
+  --bb-blue-hover: #3d6bc0;
+  --bb-blue-hi: #5b8def;
+  --bb-text: #e6eaf2;
+  --bb-muted: #8fa1bb;
+  --bb-rec: #b73a2c;
+  --bb-rec-line: #d84a3b;
+  --bb-ok: #3ddc84;
+  --bb-warn: #f1c40f;
+  --bb-err: #ff7a6c;
+}
+
+/* Logo sobre baldosa blanca: el SVG es azul y se pierde sobre fondo oscuro. */
+.brand-logo {
+  display: block;
+  flex: 0 0 auto;
+  background: #fff;
+  border-radius: 6px;
+  padding: 3px;
+}
