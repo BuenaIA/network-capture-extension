@@ -304,7 +304,8 @@ async function startCapture(tabId) {
   if (!tabId) throw new Error('No active tab');
   const tab = await chrome.tabs.get(tabId);
   state.tabId = tabId;
-  state.tabUrl = tab.url;
+  // A tab that is still loading reports about:blank as url; pendingUrl has the real target
+  state.tabUrl = tab.pendingUrl || tab.url;
   await chrome.debugger.attach({ tabId }, '1.3');
   await chrome.debugger.sendCommand({ tabId }, 'Network.enable', {
     maxResourceBufferSize: 50 * 1024 * 1024,
@@ -378,17 +379,64 @@ async function ensureOffscreen() {
   offscreenReady = true;
 }
 
+// Chrome rejects any runtime message above 64 MiB, and a long capture with
+// response bodies can exceed that. Each chunk stays far below the limit.
+const MESSAGE_CHUNK_CHARS = 4 * 1024 * 1024;
+
+// Domain of the captured tab for the file name: https://test.buenaia.ai/x -> test.buenaia.ai
+function hostForFilename(tabUrl) {
+  try {
+    const url = new URL(tabUrl);
+    // Only web pages have a meaningful domain; chrome:// and file:// pages do not
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'unknown';
+    return url.hostname.replace(/^www\./, '').replace(/[^a-z0-9.-]/g, '_') || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+// Splits text into pieces of at most `size` chars without ending one on a
+// high surrogate, which would otherwise leave half a character in each piece.
+function splitText(text, size) {
+  const parts = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(start + size, text.length);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
+    parts.push(text.slice(start, end));
+    start = end;
+  }
+  return parts;
+}
+
+// Sends the entries to the offscreen document as sequential JSON chunks.
+// The offscreen document joins them back before building the export.
+async function uploadEntries(entries) {
+  const parts = splitText(JSON.stringify(entries), MESSAGE_CHUNK_CHARS);
+  for (let index = 0; index < parts.length; index++) {
+    const reply = await chrome.runtime.sendMessage({
+      target: 'offscreen',
+      type: 'PUT_CHUNK',
+      index,
+      data: parts[index]
+    });
+    if (!reply || !reply.ok) throw new Error('offscreen did not accept capture chunk ' + index);
+  }
+}
+
 async function downloadAll(format = 'zip') {
   const entries = Array.from(state.requests.values());
   if (!entries.length) throw new Error('Nothing to download — capture some requests first.');
   await ensureOffscreen();
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const baseName = `network_capture_${hostForFilename(state.tabUrl)}_${ts}`;
+  await uploadEntries(entries);
   const reply = await chrome.runtime.sendMessage({
     target: 'offscreen',
     type: 'BUILD_AND_DOWNLOAD',
     format,
-    ts,
-    entries,
+    baseName,
     meta: {
       startTime: state.startTime,
       endTime: state.endTime || Date.now(),

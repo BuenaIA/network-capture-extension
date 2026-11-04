@@ -166,7 +166,7 @@ th{background:#f0f0f0}tr:hover{background:#fff}h1{font-size:18px}small{color:#66
 </body></html>`;
 }
 
-async function buildBlob({ format, ts, entries, meta }) {
+async function buildBlob({ format, baseName, entries, meta }) {
   let url, filename, mime;
   const total = entries.length;
 
@@ -174,19 +174,19 @@ async function buildBlob({ format, ts, entries, meta }) {
     const payload = JSON.stringify({ meta, requests: entries }, null, 2);
     const blob = new Blob([payload], { type: 'application/json' });
     url = URL.createObjectURL(blob);
-    filename = `network_capture_${ts}.json`;
+    filename = `${baseName}.json`;
     mime = 'application/json';
   } else if (format === 'har') {
     const har = buildHar(entries, meta);
     const blob = new Blob([har], { type: 'application/json' });
     url = URL.createObjectURL(blob);
-    filename = `network_capture_${ts}.har`;
+    filename = `${baseName}.har`;
     mime = 'application/json';
   } else if (format === 'csv') {
     const csv = buildCsv(entries);
     const blob = new Blob([csv], { type: 'text/csv' });
     url = URL.createObjectURL(blob);
-    filename = `network_capture_${ts}.csv`;
+    filename = `${baseName}.csv`;
     mime = 'text/csv';
   } else {
     // ZIP — per-request files + summary + bodies + index.html
@@ -261,12 +261,15 @@ async function buildBlob({ format, ts, entries, meta }) {
     const zipBytes = NCPZip.create(files);
     const blob = new Blob([zipBytes], { type: 'application/zip' });
     url = URL.createObjectURL(blob);
-    filename = `network_capture_${ts}.zip`;
+    filename = `${baseName}.zip`;
     mime = 'application/zip';
   }
 
   return { ok: true, url, filename, mime };
 }
+
+// Entries arrive as JSON chunks from background.js (see uploadEntries there).
+const uploadedChunks = [];
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.target !== 'offscreen') return;
@@ -275,10 +278,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return;
   }
+  if (msg.type === 'PUT_CHUNK') {
+    // Chunk 0 starts a new export, so discard anything left by an aborted one
+    if (msg.index === 0) uploadedChunks.length = 0;
+    uploadedChunks.push(msg.data);
+    sendResponse({ ok: true });
+    return;
+  }
   if (msg.type !== 'BUILD_AND_DOWNLOAD') return;
   (async () => {
     try {
-      const r = await buildBlob(msg);
+      const entries = JSON.parse(uploadedChunks.splice(0).join(''));
+      const r = await buildBlob({ ...msg, entries });
       sendResponse({ ok: true, url: r.url, filename: r.filename, mime: r.mime });
     } catch (e) {
       console.error('[offscreen] build error', e);
