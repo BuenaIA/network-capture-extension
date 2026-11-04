@@ -29,7 +29,7 @@ The recording freezes. You can resume capturing on the same tab anytime.
 A timestamped archive lands in your Downloads folder, e.g.
 
 ```
-network_capture_2026-04-28T14-02-33-512Z.zip
+network_capture_buenaia.ai_2026-04-28T14-02-33-512Z.zip
 ```
 
 ## 7. Read your capture

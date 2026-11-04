@@ -6,7 +6,7 @@ You can export the same capture in four formats. Pick the one that matches your 
 The **richest** export. One archive contains everything you could ever want:
 
 ```
-network_capture_<timestamp>.zip
+network_capture_<dominio>_<timestamp>.zip
 ├─ index.html                   ← clickable browsable summary
 ├─ summary.json                 ← capture metadata
 ├─ all_requests.json            ← every request in one big file
@@ -65,8 +65,8 @@ A flat row-per-request summary:
 All exports use ISO-8601 timestamps so they sort lexicographically:
 
 ```
-network_capture_2026-04-28T14-02-33-512Z.zip
-network_capture_2026-04-28T14-02-33-512Z.har
+network_capture_buenaia.ai_2026-04-28T14-02-33-512Z.zip
+network_capture_buenaia.ai_2026-04-28T14-02-33-512Z.har
 …
 ```
 

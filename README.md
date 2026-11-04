@@ -84,7 +84,7 @@ Para revisar una captura:
 <summary><b>Estructura del ZIP exportado</b></summary>
 
 ```
-network_capture_<fecha>.zip
+network_capture_<dominio>_<fecha>.zip
 ├─ index.html              ← resumen navegable
 ├─ summary.json            ← metadatos de la captura (inicio, fin, bytes, pestaña)
 ├─ all_requests.json       ← todas las peticiones en un único archivo
@@ -100,6 +100,27 @@ network_capture_<fecha>.zip
 ```
 
 </details>
+
+## Captura automática de un sitio
+
+`tools/crawl-capture.js` abre el sitio en Brave (o Chrome), recorre sus páginas del mismo origen con la extensión grabando y guarda el ZIP. No tiene dependencias y necesita Node 22 o superior.
+
+```bash
+# Con inicio de sesión: se abre el navegador, inicias sesión y pulsas Enter; después rastrea en esa misma ejecución
+node tools/crawl-capture.js https://intranet.ejemplo.com/login --login --max-pages 300 --max-depth 6
+
+# Sitio ya con sesión guardada en el perfil (ver nota sobre cookies): rastreo sin pausa
+node tools/crawl-capture.js https://intranet.ejemplo.com/ --max-pages 300 --max-depth 6
+```
+
+El perfil se guarda en `~/.network-capture-profiles/<dominio>`, así que cada sitio tiene su propia sesión.
+
+Opciones principales: `--browser <ruta>` (por defecto Brave y después Chrome), `--profile <dir>`, `--out <dir>`, `--format zip|json|har|csv`, `--headless`, `--settle <ms>`.
+
+- **Sesiones:** el perfil conserva las cookies persistentes (las de "recordarme" o con fecha de caducidad), así que en esos sitios basta con iniciar sesión una vez con `--login`. Las cookies de sesión sin caducidad las borra el navegador al cerrarse: en esos sitios hay que usar `--login` en cada ejecución.
+- **Qué no sigue:** enlaces de otros dominios, enlaces de cierre de sesión (`logout`, `salir`, `cerrar-sesion`) y ficheros binarios como imágenes, CSS o JS.
+- **Limitaciones:** solo sigue enlaces `<a href>` del HTML; las aplicaciones que navegan solo con JavaScript no se recorren completas.
+- Usa la herramienta solo en sitios que sean tuyos o para los que tengas autorización: rastrear un sitio genera mucho tráfico.
 
 ## Casos de uso
 
@@ -139,6 +160,7 @@ Vanilla HTML, CSS y JavaScript, sin frameworks, bundler ni paso de compilación.
 ├─ popup.html / .css / .js ← UI compacta de la barra de herramientas
 ├─ panel.html / panel.js  ← panel de pantalla completa con pestañas de detalle
 ├─ devtools.html / .js    ← registra la pestaña dentro de DevTools
+├─ tools/crawl-capture.js ← rastreo automático de un sitio con Brave o Chrome
 ├─ assets/                ← identidad visual BuenaIA
 └─ wiki/                  ← documentación detallada (fuente de la wiki del repo)
 ```
