@@ -7,22 +7,23 @@ The **richest** export. One archive contains everything you could ever want:
 
 ```
 network_capture_<dominio>_<timestamp>.zip
-├─ index.html                   ← clickable browsable summary
-├─ summary.json                 ← capture metadata
-├─ all_requests.json            ← every request in one big file
-├─ capture.har                  ← HAR 1.2 — open in DevTools/Postman
-├─ capture.csv                  ← spreadsheet-friendly summary
-├─ counter_and_time.txt         ← human-readable counter + timings
-├─ requests/<NNNNN>_<host>_<METHOD>.json   ← per-request detail JSON
-├─ bodies/<NNNNN>_<host>.<ext>             ← raw response bodies
-├─ post_data/<NNNNN>_<host>.txt            ← raw POST/PUT bodies
-└─ cookies/{request,response}_cookies.json ← every cookie, parsed
+├─ index.html                   ← browsable table, links to every request, body and POST
+├─ site-schema.md / .json       ← map of the capture: pages, hosts, statuses, types, endpoints
+├─ summary.json                 ← capture metadata (start, end, bytes, tab, bodies skipped)
+├─ capture.har                  ← HAR 1.2 with bodies — open in DevTools/Postman
+├─ capture.csv                  ← one row per request, for spreadsheets
+├─ cookies/{request,response}_cookies.json ← every cookie, parsed
+├─ requests/<host>/<NNNNN>_<METHOD>_<status>_<path>.json   ← one clean record per request
+├─ bodies/<host>/<NNNNN>_<path>.<ext>                       ← response bodies as received
+└─ post_data/<host>/<NNNNN>_<path>.txt                      ← request bodies, if any
 ```
+
+Each record in `requests/` is grouped and has no empty fields: `request` (method, URL, query, headers, cookies, body), `response` (status, headers, cookies, server, cache, security, a reference to the body file), `timing`, `page` (the crawl page that triggered it) and `redirectTo` for redirects. Every hop of a redirect chain is its own record. Bodies are not duplicated: they live in `bodies/` (and in the HAR, which is a standard format).
 
 **Best for:** bug reports, archives, sharing with teammates.
 
 ## ⬇ JSON
-A single `.json` file with `{ meta, requests: [...] }`. Identical structure to `all_requests.json` inside the ZIP, but flat.
+A single `.json` file with `{ meta, requests: [...] }`. The records have the same clean structure as the files in `requests/` inside the ZIP, with the bodies inline.
 
 **Best for:** scripts (`jq`, Python `json.load`, Node), AI tooling, custom dashboards.
 

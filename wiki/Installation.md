@@ -57,7 +57,7 @@ If the version badge is missing, the popup couldn't reach the service worker —
 ## 🧰 Requirements
 
 - **Chrome 116** or newer (uses the offscreen-documents `BLOBS` reason and CDP `1.3`)
-- **~5 MB** of free `chrome.storage.local` quota
+- Enough free **memory** for the capture: it lives in RAM while the browser is open (bodies up to 1 GiB per capture)
 - **Permission to attach the debugger** to a tab — Chrome will show a yellow notice bar when capture is running. This is required and unavoidable; it's a security feature, not a bug.
 
 ## 🌐 Other Chromium browsers

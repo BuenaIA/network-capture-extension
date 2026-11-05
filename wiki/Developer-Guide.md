@@ -29,14 +29,14 @@ manifest.json        → permissions + entry points
 background.js        → service worker (state, CDP, message routing)
   ├─ debugger.onEvent  → captures CDP events
   ├─ message router    → handles popup/panel actions
-  ├─ saveState()       → debounced chrome.storage.local writes
+  ├─ finalize()        → closes a request and hands it to the offscreen store
   ├─ ensureOffscreen() → lazy-spawns offscreen doc
   └─ downloadAll()     → orchestrates the export flow
 
-offscreen.js         → blob builders
-  ├─ buildHar()
-  ├─ buildCsv()
-  ├─ buildIndexHtml()
+offscreen.js         → the capture (in memory) + streaming exports
+  ├─ store             → finished requests, kept in memory
+  ├─ harParts() / csvParts() / indexHtmlParts() → generators of file pieces
+  ├─ layoutFor()       → where each request goes inside the ZIP
   └─ buildBlob()       → returns blob URL to background
 
 zip.js               → custom STORE-method ZIP writer
@@ -49,14 +49,13 @@ devtools.html/js     → DevTools panel registration
 
 Say you want to add a Markdown export. Three changes:
 
-1. **`offscreen.js`** — add a `buildMd(entries, meta)` function and wire it in the `buildBlob` switch:
+1. **`offscreen.js`** — add a generator that yields the file in pieces and register it in `FORMATS`:
    ```js
-   } else if (format === 'md') {
-     const md = buildMd(entries, meta);
-     const blob = new Blob([md], { type: 'text/markdown' });
-     url = URL.createObjectURL(blob);
-     filename = `network_capture_${ts}.md`;
+   function* mdParts(entries, meta) {
+     yield '# Capture\n\n';
+     for (const e of entries) yield `- ${e.method} ${e.url}\n`;
    }
+   const FORMATS = { /* … */ md: { mime: 'text/markdown', ext: 'md', parts: mdParts } };
    ```
 2. **`popup.html`** — add a button:
    ```html

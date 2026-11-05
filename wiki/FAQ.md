@@ -57,7 +57,7 @@ Yes. The debugger session stays attached to the *tab*, not the page, so you can 
 <details>
 <summary><b>What's the maximum capture size?</b></summary>
 
-Practically: a few hundred MB of total traffic before `chrome.storage.local` starts to feel cramped. The ZIP writer itself can produce archives up to a few GB.
+The capture lives in memory, so the limit is memory, not disk or storage quota. Response bodies are kept up to **1 GiB** per capture; past that, requests are still recorded without their body and the popup says how many were skipped. Exports are streamed, so they are not limited by string or buffer sizes: a 1 GB capture was exported as a 2.3 GB ZIP in testing. Closing the browser discards the capture, so export before quitting.
 </details>
 
 <details>
@@ -65,8 +65,9 @@ Practically: a few hundred MB of total traffic before `chrome.storage.local` sta
 
 Three reasons:
 1. **Disk cache hits** — Chrome serves from cache; the body isn't streamed through CDP. Use *Clear cache* + *Hard reload* to force re-fetches.
-2. **Streaming / large responses** — Chrome's CDP refuses to return very large bodies. The entry will have a `responseBodyError` field instead.
+2. **Streaming / large responses** — Chrome's CDP refuses to return very large bodies, and DevTools keeps bodies in a 200 MB buffer until they are read; in very large, fast captures some are evicted (`evicted from inspector cache`). The request is kept and the reason is in its record and in `site-schema.md`.
 3. **Failed requests** — if the request errored before the body arrived, there's nothing to capture.
+4. **Memory limit** — after 1 GiB of bodies, new bodies are skipped on purpose (see the popup status).
 </details>
 
 <details>
@@ -118,7 +119,7 @@ No. Zero outbound network calls. Read [`background.js`](../background.js) yourse
 <details>
 <summary><b>Is my data uploaded anywhere?</b></summary>
 
-No. Captures live in `chrome.storage.local` and your `Downloads` folder — both 100% on your device.
+No. Captures live in the extension's memory and in your `Downloads` folder — both 100% on your device.
 </details>
 
 <details>

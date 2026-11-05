@@ -50,4 +50,4 @@ We removed the **"Clear ALL site data"** button so you can't accidentally wipe l
 2. Deploy
 3. **Clear cookies** + **Hard reload**
 4. Capture session → ⬇ ZIP (rename as `after.zip`)
-5. `diff before/all_requests.json after/all_requests.json`
+5. `diff -r before/requests after/requests` (or compare `before/capture.csv` with `after/capture.csv`)

@@ -6,15 +6,13 @@ The full list, with the *exact* reason each one exists.
 |---|---|---|
 | `debugger` | The only API that returns full response bodies (via `Network.getResponseBody`). The whole project depends on this. | No — this is the core. |
 | `<all_urls>` | Lets the debugger attach to whichever tab you choose to capture. | Only by replacing it with `activeTab`, which is more limited. |
-| `storage` | Persists captured requests across service-worker restarts. Without it, evicting the SW would lose your in-progress capture. | No — MV3 SWs *will* be evicted; we need persistence. |
+| `storage` | Keeps a few settings (about 200 bytes: whether a capture is running, its tab and start time) so a service worker that was evicted can pick the capture up again. The requests themselves are **not** stored here. | Only by losing that recovery. |
 | `downloads` | Saves your ZIP / JSON / HAR / CSV files to disk. | No — alternative is right-click → Save As, which is a worse UX. |
-| `tabs` | Reads the URL of the captured tab so we know what site you're on (for the "Target site" row). | We could use only `activeTab`, but then we'd lose context after switching windows. |
-| `activeTab` | Lets us trigger captures on the current tab without a host-permission warning the first time. | Pairs with `tabs`. |
-| `cookies` | Reserved for upcoming "list all cookies on this site" feature; currently unused at runtime. | Yes — drop in a future release if the feature isn't built. |
+| `tabs` | Reads the URL of the captured tab so we know what site you're on (for the "Target site" row and the export file name). | Not without losing that context after switching windows. |
 | `browsingData` | Powers the **Clear cookies** and **Clear cache** buttons (origin-scoped). | Only by removing those buttons. |
-| `offscreen` | Required to create blob URLs in MV3 — service workers can't do it themselves. | No — without it, downloads can't work. |
-| `webNavigation` | Reserved for upcoming auto-attach mode (capture starts the moment a tab opens). | Yes — currently unused; will be used in the next minor release. |
-| `scripting` | Reserved for upcoming "inject a marker / replay a request" feature. | Yes — currently unused. |
+| `offscreen` | Holds the capture in memory (the service worker is evicted, the offscreen document is not) and creates the blob URLs for downloads, which service workers can't. | No — without it, there is no place to keep the capture and downloads can't work. |
+
+Version 1.0.2 removed `cookies`, `scripting`, `webNavigation`, `activeTab` and `unlimitedStorage`: none of them was used.
 
 ## What we deliberately do **not** ask for
 
@@ -22,7 +20,7 @@ The full list, with the *exact* reason each one exists.
 - ❌ `nativeMessaging` — no native binaries
 - ❌ `notifications` — no popups
 - ❌ `clipboardWrite` — copy buttons would only need short-term clipboard access; we don't have any
-- ❌ `unlimitedStorage` — captures fit in the standard local quota; if you need bigger, you should be exporting
+- ❌ `unlimitedStorage` — captures are not stored in browser storage at all; they live in memory
 
 ## What you should sanity-check before installing any extension that asks for `debugger`
 

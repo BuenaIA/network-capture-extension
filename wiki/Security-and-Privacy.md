@@ -33,10 +33,10 @@ Captured data lives in two places:
 
 | Where | When | What |
 |---|---|---|
-| `chrome.storage.local` | While capturing / between sessions | All entries until you press **Clear** |
+| The extension's **memory** (offscreen document) | While the browser is open, until you press **Clear** | All captured requests, bodies included |
 | Your **Downloads** folder | When you press an export button | The chosen ZIP/JSON/HAR/CSV file |
 
-Nothing else. No cloud sync. No external backup.
+Nothing else. Nothing is written to browser storage or to temporary files, there is no cloud sync and no external backup. Closing the browser discards the capture. `chrome.storage.local` only holds a few settings (about 200 bytes) and the download blob is released as soon as the download ends.
 
 ## Why does it ask for `<all_urls>`?
 

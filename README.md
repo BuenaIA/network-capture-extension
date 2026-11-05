@@ -32,7 +32,7 @@ Las DevTools de Chrome muestran las peticiones de red mientras las tienes abiert
 | 🔍 **Filtros** | Por URL, método, estado, MIME o tipo de recurso; los mismos filtros en popup y panel |
 | 🪟 **Tres interfaces** | Popup compacto, panel de pantalla completa y pestaña dentro de DevTools |
 | 🍪 **Herramientas del sitio** | Borrar cookies y caché solo del origen capturado |
-| 💾 **Resistente a reinicios** | Las peticiones se persisten en `chrome.storage.local`; una captura larga sobrevive a que Chrome duerma el service worker |
+| 💾 **Solo en memoria** | La captura vive en la memoria de la extensión mientras el navegador esté abierto: no escribe en disco ni en IndexedDB, y sobrevive a que Chrome duerma el service worker. Al cerrar el navegador se pierde, así que exporta antes |
 | 🔒 **Local por diseño** | Sin llamadas de red, sin analítica y sin dependencias externas |
 
 ## Instalación
@@ -78,26 +78,27 @@ Para revisar una captura:
 - **ZIP:** descomprímelo y abre `index.html` en el navegador.
 - **HAR:** ábrelo en las DevTools, Postman, Charles o Insomnia.
 - **CSV:** ábrelo en Excel u hojas de cálculo.
-- **JSON:** `all_requests.json` es procesable con `jq`, Python o Node.
+- **JSON:** cada fichero de `requests/` es un registro limpio y anidado de una petición, procesable con `jq`, Python o Node.
 
 <details>
 <summary><b>Estructura del ZIP exportado</b></summary>
 
 ```
 network_capture_<dominio>_<fecha>.zip
-├─ index.html              ← resumen navegable
-├─ summary.json            ← metadatos de la captura (inicio, fin, bytes, pestaña)
-├─ all_requests.json       ← todas las peticiones en un único archivo
-├─ capture.har            ← HAR 1.2
-├─ capture.csv            ← resumen para hojas de cálculo
-├─ counter_and_time.txt   ← contador y tiempos legibles
-├─ requests/              ← un JSON por petición, con todos los datos
-├─ bodies/                ← cuerpos de respuesta con la extensión correcta
-├─ post_data/             ← cuerpos de POST/PUT en bruto
-└─ cookies/
-    ├─ request_cookies.json   ← cookies enviadas, con URL de origen
-    └─ response_cookies.json  ← cada Set-Cookie, parseada en campos
+├─ index.html                 ← tabla navegable con enlaces a cada petición, cuerpo y POST
+├─ site-schema.md / .json     ← mapa de la captura: páginas, hosts, estados, tipos, endpoints
+├─ summary.json               ← metadatos (inicio, fin, bytes, pestaña, cuerpos omitidos)
+├─ capture.har                ← HAR 1.2, con cuerpos, para DevTools, Postman o Charles
+├─ capture.csv                ← una fila por petición, para hojas de cálculo
+├─ cookies/
+│   ├─ request_cookies.json   ← cookies enviadas, con la URL que las envió
+│   └─ response_cookies.json  ← cada Set-Cookie, separada en campos
+├─ requests/<host>/           ← un registro limpio por petición: 00012_POST_201_api_orders.json
+├─ bodies/<host>/             ← cuerpo de respuesta tal como llegó: 00012_api_orders.json, .png…
+└─ post_data/<host>/          ← cuerpo de la petición, si lo tenía
 ```
+
+Cada registro de `requests/` agrupa lo que importa y omite lo que no hay: `request` (método, URL, query, cabeceras, cookies, cuerpo), `response` (estado, cabeceras, cookies, servidor, caché, seguridad, referencia al cuerpo), `timing`, `page` (página del rastreo que la provocó) y `redirectTo` si fue una redirección. Cada salto de una cadena de redirecciones es su propio registro. Los cuerpos no se duplican: están solo en `bodies/` (y en el HAR, que es un formato estándar).
 
 </details>
 
@@ -115,9 +116,11 @@ node tools/crawl-capture.js https://intranet.ejemplo.com/ --max-pages 300 --max-
 
 El perfil se guarda en `~/.network-capture-profiles/<dominio>`, así que cada sitio tiene su propia sesión.
 
-Opciones principales: `--browser <ruta>` (por defecto Brave y después Chrome), `--profile <dir>`, `--out <dir>`, `--format zip|json|har|csv`, `--headless`, `--settle <ms>`.
+Opciones principales: `--browser <ruta>` (por defecto Brave y después Chrome), `--profile <dir>`, `--out <dir>`, `--format zip|json|har|csv`, `--max-pages <n>`, `--max-depth <n>`, `--deep-links <n>`, `--no-menus`, `--headless`, `--settle <ms>`.
 
 - **Sesiones:** el perfil conserva las cookies persistentes (las de "recordarme" o con fecha de caducidad), así que en esos sitios basta con iniciar sesión una vez con `--login`. Las cookies de sesión sin caducidad las borra el navegador al cerrarse: en esos sitios hay que usar `--login` en cada ejecución.
+- **Limpieza:** al terminar borra las cachés y los volcados de fallo del perfil (conserva cookies y sesión) y no deja descargas a medias ni rastro de la exportación en el historial del navegador. Lo único que queda es el ZIP en `--out`.
+- **Si el navegador se cae** (por ejemplo, por falta de memoria) aborta enseguida con un mensaje claro en vez de quedarse esperando.
 - **Qué no sigue:** enlaces de otros dominios, enlaces de cierre de sesión (`logout`, `salir`, `cerrar-sesion`) y ficheros binarios como imágenes, CSS o JS.
 - **Limitaciones:** solo sigue enlaces `<a href>` del HTML; las aplicaciones que navegan solo con JavaScript no se recorren completas.
 - Usa la herramienta solo en sitios que sean tuyos o para los que tengas autorización: rastrear un sitio genera mucho tráfico.
@@ -139,13 +142,19 @@ Los datos no salen del equipo. El código no contiene ninguna llamada de red (`f
 |---|---|
 | `debugger` | Única vía para leer los cuerpos de respuesta (Chrome DevTools Protocol) |
 | `<all_urls>` | Permite adjuntar el depurador a la pestaña que se captura |
-| `storage` | Persiste las peticiones entre reinicios del service worker |
+| `storage` | Guarda solo ajustes mínimos (estado de la captura); las peticiones no se guardan aquí |
 | `downloads` | Guarda los archivos ZIP, JSON, HAR y CSV |
-| `tabs`, `activeTab` | Identifica la pestaña capturada |
-| `cookies` | Lee metadatos de cookies del sitio capturado |
+| `tabs` | Identifica la pestaña capturada |
 | `browsingData` | Botones de borrado de cookies y caché por origen |
-| `offscreen` | Construye los blobs de exportación (el service worker de MV3 no puede crearlos) |
-| `webNavigation`, `scripting` | Declarados pero no usados en la versión actual |
+| `offscreen` | Mantiene la captura en memoria (no se duerme como el service worker) y construye los ficheros de exportación |
+
+## Límites conocidos
+
+- **Memoria.** La captura vive en memoria. Los cuerpos de respuesta se guardan hasta 1 GiB por captura; a partir de ahí las peticiones se siguen registrando sin cuerpo, y el popup y `site-schema.md` indican cuántos se omitieron.
+- **Búfer de DevTools.** Chrome retiene los cuerpos en un búfer de 200 MB hasta que se leen. En capturas muy grandes y rápidas algunos cuerpos pueden desalojarse (`evicted from inspector cache`): la petición queda registrada y el motivo aparece en su registro y en el esquema. Subir ese búfer hundió el navegador en las pruebas.
+- **Una pestaña a la vez**, y sin DevTools abiertas en esa pestaña.
+- Un único cuerpo de más de ~60 MiB no cabe en un mensaje de Chrome: se registra la petición sin ese cuerpo.
+- Un fichero individual de más de 4 GiB dentro del ZIP no está soportado.
 
 ## Arquitectura
 
@@ -154,9 +163,10 @@ Vanilla HTML, CSS y JavaScript, sin frameworks, bundler ni paso de compilación.
 ```
 .
 ├─ manifest.json          ← manifiesto MV3: permisos y puntos de entrada
-├─ background.js          ← service worker: captura CDP, persistencia y descargas
-├─ offscreen.html / .js   ← construye los blobs ZIP, JSON, HAR y CSV
-├─ zip.js                 ← escritor ZIP propio (método STORE, sin compresión)
+├─ background.js          ← service worker: captura CDP, cierre de cada petición y descargas
+├─ offscreen.html / .js   ← guarda la captura en memoria y construye ZIP, JSON, HAR y CSV
+├─ common.js              ← utilidades compartidas por el service worker y el offscreen
+├─ zip.js                 ← escritor ZIP en streaming (método STORE, con zip64)
 ├─ popup.html / .css / .js ← UI compacta de la barra de herramientas
 ├─ panel.html / panel.js  ← panel de pantalla completa con pestañas de detalle
 ├─ devtools.html / .js    ← registra la pestaña dentro de DevTools
