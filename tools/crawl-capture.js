@@ -12,9 +12,15 @@
 //   --format <f>         zip | json | har | csv (default: zip)
 //   --max-pages <n>      Stop after n pages (default: 200)
 //   --max-depth <n>      Follow links up to n clicks from the start page (default: 5)
+//   --deep-links <n>     On pages below the start page, follow only n new links (default: 1)
+//   --no-menus           Do not open menus (hover and click on navigation triggers)
 //   --settle <ms>        Wait after each page load for XHR/fetch to finish (default: 1500)
 //   --headless           Run without a visible window (login needs a visible window)
 //   --port <n>           Remote debugging port (default: 9333)
+//
+// Crawl policy: the start page gives every new link it has; each page below it gives
+// only --deep-links of them. The report of visited pages is sent to the extension and
+// goes into site-schema.md / site-schema.json inside the ZIP.
 
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -36,13 +42,14 @@ const SKIP_FILE = /\.(jpe?g|png|gif|webp|svg|ico|css|js|mp3|mp4|webm|woff2?|ttf|
 function parseArgs(argv) {
   const opts = {
     startUrl: null, browser: null, profile: null, out: path.resolve('captures'), format: 'zip',
-    maxPages: 200, maxDepth: 5, settle: 1500, headless: false, login: false, port: 9333
+    maxPages: 200, maxDepth: 5, deepLinks: 1, menus: true, settle: 1500, headless: false, login: false, port: 9333
   };
-  const numeric = ['maxPages', 'maxDepth', 'settle', 'port'];
+  const numeric = ['maxPages', 'maxDepth', 'deepLinks', 'settle', 'port'];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--login') opts.login = true;
     else if (arg === '--headless') opts.headless = true;
+    else if (arg === '--no-menus') opts.menus = false;
     else if (arg.startsWith('--')) {
       const key = arg.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
       if (!(key in opts)) throw new Error('unknown option ' + arg);
@@ -78,6 +85,7 @@ function launchBrowser(opts) {
 // fd 4 = replies, NUL-terminated JSON). Chrome and Brave both accept it.
 function loadExtension(browserProcess, dir) {
   return new Promise((resolve, reject) => {
+    browserProcess.once('exit', () => reject(new Error('the browser exited before the extension was loaded')));
     let buffer = '';
     browserProcess.stdio[4].on('data', chunk => {
       buffer += chunk.toString();
@@ -115,11 +123,20 @@ async function waitFor(fn, label, timeoutMs = 60000) {
   }
 }
 
+const BROWSER_GONE = 'the browser closed the connection (it probably crashed or ran out of memory); nothing was saved';
+
 function connect(wsUrl) {
   const ws = new WebSocket(wsUrl);
   let nextId = 0;
+  let closed = false;
   const pending = new Map();
   const listeners = new Map();
+  // A dead browser never answers: fail every call that is waiting instead of hanging forever
+  ws.onclose = () => {
+    closed = true;
+    for (const { reject } of pending.values()) reject(new Error(BROWSER_GONE));
+    pending.clear();
+  };
   ws.onmessage = event => {
     const msg = JSON.parse(event.data);
     if (msg.id && pending.has(msg.id)) {
@@ -134,6 +151,7 @@ function connect(wsUrl) {
   return {
     ready: new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; }),
     send(method, params = {}) {
+      if (closed) return Promise.reject(new Error(BROWSER_GONE));
       const id = ++nextId;
       ws.send(JSON.stringify({ id, method, params }));
       return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
@@ -165,6 +183,64 @@ async function openTarget(port, browserWs, url) {
 
 // ---------- crawl ----------
 
+// Elements that usually open a menu. Hovering them shows CSS-only menus; clicking them
+// shows script-driven menus. Links with a real href are hovered but never clicked, so
+// the crawl follows them as normal pages.
+const MENU_TRIGGERS = [
+  '[aria-haspopup]', '[aria-expanded="false"]', 'summary', '[role="tab"]',
+  'nav button', 'nav a', 'nav li:has(> ul) > :first-child'
+].join(', ');
+// Skipped on purpose: they would submit, pay, delete or end the session
+const MENU_DANGER = /(delete|eliminar|borrar|remove|logout|log out|salir|cerrar sesi|pagar|pay|buy|comprar|checkout|enviar|send|submit)/i;
+const MAX_MENU_ACTIONS = 30;
+const MENU_DELAY_MS = 300;
+
+async function findMenuTriggers(page) {
+  return page.eval(`(() => {
+    document.querySelectorAll('[data-ncp-menu]').forEach(el => el.removeAttribute('data-ncp-menu'));
+    const danger = ${MENU_DANGER};
+    const triggers = [];
+    for (const el of document.querySelectorAll(${JSON.stringify(MENU_TRIGGERS)})) {
+      // Inside a form a button can submit it, so those are skipped. Note: button.type is
+      // "submit" by default even outside forms, so it cannot be used to tell them apart.
+      if (el.closest('form') || el.disabled) continue;
+      const label = (el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 80);
+      if (danger.test(label)) continue;
+      const box = el.getBoundingClientRect();
+      if (!box.width || !box.height) continue;
+      const index = triggers.length;
+      el.setAttribute('data-ncp-menu', String(index));
+      const href = el.tagName === 'A' ? el.getAttribute('href') : null;
+      triggers.push({ index, x: box.x + box.width / 2, y: box.y + box.height / 2, isLink: !!href && href !== '#' });
+      if (triggers.length >= ${MAX_MENU_ACTIONS}) break;
+    }
+    return triggers;
+  })()`);
+}
+
+async function openTrigger(page, trigger) {
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: trigger.x, y: trigger.y });
+  await sleep(MENU_DELAY_MS / 2);
+  if (trigger.isLink) return;
+  await page.eval(`document.querySelector('[data-ncp-menu="${trigger.index}"]')?.click()`);
+}
+
+// Links of the current page, plus the links that appear when its menus are opened
+async function collectLinks(page, origin, pageUrl, opts) {
+  const links = new Set(await extractLinks(page, origin, pageUrl));
+  let menusOpened = 0;
+  if (opts.menus) {
+    for (const trigger of await findMenuTriggers(page)) {
+      await openTrigger(page, trigger);
+      menusOpened++;
+      await sleep(MENU_DELAY_MS);
+      if ((await page.eval('location.href')) !== pageUrl) break;  // a click navigated away
+      for (const link of await extractLinks(page, origin, pageUrl)) links.add(link);
+    }
+  }
+  return { links: [...links], menusOpened };
+}
+
 function normalize(href) {
   const url = new URL(href);
   url.hash = '';
@@ -191,25 +267,39 @@ async function loadPage(page, url, settle) {
   return page.eval('location.href');
 }
 
+// Returns one record per visited page, in visit order, for the capture report
 async function crawl(page, opts) {
   const origin = new URL(opts.startUrl).origin;
-  const queue = [{ url: opts.startUrl, depth: 0 }];
+  const queue = [{ url: opts.startUrl, depth: 0, parent: null }];
   const seen = new Set([normalize(opts.startUrl)]);
-  const visited = [];
-  while (queue.length && visited.length < opts.maxPages) {
-    const { url, depth } = queue.shift();
-    const finalUrl = await loadPage(page, url, opts.settle);
+  const pages = [];
+  while (queue.length && pages.length < opts.maxPages) {
+    const item = queue.shift();
+    const startedAt = Date.now();
+    const finalUrl = await loadPage(page, item.url, opts.settle);
     seen.add(normalize(finalUrl));  // redirects end on another URL; never queue that one again
-    visited.push(finalUrl);
-    console.log(`  [${visited.length}] depth ${depth}  ${finalUrl}`);
-    if (depth >= opts.maxDepth) continue;
-    for (const link of await extractLinks(page, origin, finalUrl)) {
-      if (seen.has(link)) continue;
+    const { links, menusOpened } = await collectLinks(page, origin, finalUrl, opts);
+    const title = await page.eval('document.title').catch(() => '');
+    pages.push({ url: finalUrl, title, depth: item.depth, parent: item.parent, startedAt, endedAt: Date.now(), links: links.length, menusOpened });
+    console.log(`  [${pages.length}] depth ${item.depth}  links ${links.length}  menus ${menusOpened}  ${finalUrl}`);
+    if (item.depth >= opts.maxDepth) continue;
+    const fresh = links.filter(link => !seen.has(link));
+    // Start page: every new link. Pages below it: only the first --deep-links new ones.
+    const take = item.depth === 0 ? fresh.length : opts.deepLinks;
+    for (const link of fresh.slice(0, take)) {
       seen.add(link);
-      queue.push({ url: link, depth: depth + 1 });
+      queue.push({ url: link, depth: item.depth + 1, parent: finalUrl });
     }
   }
-  return visited;
+  return pages;
+}
+
+function buildReport(opts, pages) {
+  return {
+    startUrl: opts.startUrl,
+    options: { maxPages: opts.maxPages, maxDepth: opts.maxDepth, deepLinks: opts.deepLinks, menus: opts.menus, settle: opts.settle },
+    pages
+  };
 }
 
 // ---------- capture export ----------
@@ -226,7 +316,51 @@ async function exportCapture(ctrl, opts) {
   fs.mkdirSync(opts.out, { recursive: true });
   const target = path.join(opts.out, reply.filename);
   fs.renameSync(item.filename, target);
+  // Forget the download in the browser too, so the profile keeps no record of the export
+  await ctrl.eval(`chrome.downloads.erase({ id: ${reply.downloadId} })`).catch(() => {});
   return target;
+}
+
+// ---------- cleanup ----------
+
+// Caches and crash dumps that a crawl leaves in the profile. Cookies, local storage and
+// preferences stay, because they hold the login session.
+const PROFILE_TRASH = [
+  'Default/Cache', 'Default/Code Cache', 'Default/GPUCache', 'Default/DawnGraphiteCache', 'Default/DawnWebGPUCache',
+  'Default/blob_storage', 'Default/Service Worker/CacheStorage', 'Default/Service Worker/ScriptCache',
+  'GrShaderCache', 'ShaderCache', 'GraphiteDawnCache', 'Crashpad', 'BrowserMetrics', 'component_crx_cache',
+  'extensions_crx_cache'
+];
+
+function dirSize(target) {
+  let total = 0;
+  try {
+    for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+      const full = path.join(target, entry.name);
+      total += entry.isDirectory() ? dirSize(full) : fs.statSync(full).size;
+    }
+  } catch {}
+  return total;
+}
+
+function cleanProfile(profile) {
+  let freed = 0;
+  for (const relative of PROFILE_TRASH) {
+    const target = path.join(profile, relative);
+    if (!fs.existsSync(target)) continue;
+    freed += dirSize(target);
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+  if (freed) console.log(`profile caches removed (${(freed / 1048576).toFixed(1)} MiB); the login session is kept`);
+}
+
+// A browser killed in the middle of a download leaves a .crdownload file behind
+function removePartialDownloads(dir) {
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (name.endsWith('.crdownload')) fs.rmSync(path.join(dir, name), { force: true });
+    }
+  } catch {}
 }
 
 // ---------- main ----------
@@ -258,16 +392,19 @@ async function main() {
       await waitForEnter('Log in in the browser window, then press Enter here to start crawling.');
       console.log('crawling with the new session');
     }
-    const visited = await crawl(page, opts);
+    const pages = await crawl(page, opts);
     await send({ type: 'STOP' });
+    await send({ type: 'SET_CRAWL_REPORT', report: buildReport(opts, pages) });
     const state = await send({ type: 'GET_STATE' });
-    console.log(`crawled ${visited.length} pages, ${state.count} requests, ${(state.bytes / 1048576).toFixed(1)} MiB`);
+    console.log(`crawled ${pages.length} pages, ${state.count} requests, ${(state.bytes / 1048576).toFixed(1)} MiB`);
 
     const file = await exportCapture(ctrl, opts);
     console.log('saved', file);
     ctrl.close(); page.close();
   } finally {
     await closeBrowser(browserWs, browserProcess);
+    cleanProfile(opts.profile);
+    removePartialDownloads(opts.out);
   }
 }
 
@@ -286,7 +423,11 @@ function waitForEnter(message) {
     .finally(() => rl.close());
 }
 
-main().catch(err => {
-  console.error('error:', err.message);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error('error:', err.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { crawl };

@@ -21,7 +21,7 @@ jobs:
           VERSION=$(jq -r '.version' manifest.json)
           ZIP="network-capture-extension-v${VERSION}.zip"
           zip -r "$ZIP" . \
-            -x ".git/*" ".github/*" "wiki/*" "dist/*" ".gitignore"
+            -x ".git/*" ".github/*" "wiki/*" "dist/*" "tools/*" "captures/*" ".gitignore" "*.DS_Store"
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
