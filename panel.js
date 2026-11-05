@@ -12,13 +12,19 @@ const ui = {
 let cached = []; let lastState = null; let selected = null;
 
 const send = (type, data = {}) => chrome.runtime.sendMessage({ target: 'background', type, ...data });
+// The list holds summaries only; the full entry (headers, bodies) is fetched on click
+const fullRequest = async (summary) => (await send('GET_REQUEST', { id: summary.id })).request || summary;
 const fmtBytes = (n) => { if (!n) return '0 B'; const u=['B','KB','MB','GB']; let i=0; while (n>=1024 && i<u.length-1){n/=1024;i++;} return `${n.toFixed(i?1:0)} ${u[i]}`; };
 const elapsed = (s,e) => { if (!s) return '00:00'; const t=Math.floor(((e||Date.now())-s)/1000); const h=Math.floor(t/3600), m=Math.floor((t%3600)/60), ss=t%60; return (h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0'); };
 const sc = (n) => !n ? 'warn' : (n>=400 ? 'err' : (n>=300 ? 'warn' : 'ok'));
 
 async function refresh() {
   lastState = await send('GET_STATE');
-  ui.status.textContent = lastState.capturing ? (lastState.paused ? 'Paused' : 'Recording') : 'Idle';
+  let statusText = lastState.capturing ? (lastState.paused ? 'Paused' : 'Recording') : 'Idle';
+  // Bodies are kept in memory up to a limit; say so instead of silently dropping them
+  if (lastState.bodiesSkipped) statusText += ` · ${lastState.bodiesSkipped} bodies skipped (memory limit)`;
+  if (lastState.lostEntries) statusText += ` · ${lastState.lostEntries} requests not stored`;
+  ui.status.textContent = statusText;
   ui.count.textContent = lastState.count;
   ui.bytes.textContent = fmtBytes(lastState.bytes);
   ui.timer.textContent = elapsed(lastState.startTime, lastState.endTime);
@@ -41,7 +47,7 @@ async function refresh() {
   ui.stopBtn.disabled  = !lastState.capturing;
   ui.pauseBtn.textContent = lastState.paused ? 'Resume' : 'Pause';
 
-  const { requests } = await send('GET_REQUESTS');
+  const { requests } = await send('GET_REQUEST_LIST');
   cached = requests || [];
   render();
 }
@@ -50,7 +56,7 @@ function render() {
   const q = ui.filter.value.trim().toLowerCase();
   const tf = ui.typeFilter.value, mf = ui.methodFilter.value;
   ui.rows.innerHTML = '';
-  cached.slice().sort((a,b) => (a.requestTime||a.capturedAt||0)-(b.requestTime||b.capturedAt||0)).forEach((e, i) => {
+  cached.slice().sort((a,b) => (a.seq||0)-(b.seq||0)).forEach((e, i) => {
     if (tf && e.resourceType !== tf) return;
     if (mf && e.method !== mf) return;
     if (q) {
@@ -70,7 +76,7 @@ function render() {
       <td>${e.duration?Math.round(e.duration)+'ms':''}</td>
       <td>${e.encodedDataLength?fmtBytes(e.encodedDataLength):''}</td>
     `;
-    tr.addEventListener('click', () => { selected = e; render(); showDetail(e); });
+    tr.addEventListener('click', async () => { selected = e; render(); showDetail(await fullRequest(e)); });
     ui.rows.appendChild(tr);
   });
 }
@@ -101,29 +107,30 @@ function showDetail(e) {
         StatusText: e.responseStatusText, MimeType: e.responseMimeType,
         RemoteAddress: e.remoteAddress, Protocol: e.protocol,
         Duration_ms: e.duration ? Math.round(e.duration) : '',
-        Bytes: e.encodedDataLength, FromDiskCache: e.fromDiskCache,
-        FromServiceWorker: e.fromServiceWorker, Failed: e.failed, Error: e.errorText
+        Bytes: e.encodedDataLength, FromCache: e.fromCache, RedirectsTo: e.redirectTo,
+        Failed: e.failed, Error: e.errorText, Incomplete: e.incomplete, BodyNote: e.responseBodyError
       })}
     </div>
     <div id="paneRequest" hidden>
-      <h4>Headers</h4>${kv(e.requestHeadersFull || e.requestHeaders)}
+      <h4>Headers</h4>${kv(e.requestHeaders)}
       <h4>Query parameters</h4>${kv(e.queryParams)}
       <h4>Post body (raw)</h4>${pre(e.postData || '(none)')}
       <h4>Post body (parsed)</h4>${pre(e.postDataJson || e.postDataForm || '(none)')}
     </div>
     <div id="paneResponse" hidden>
-      <h4>Headers</h4>${kv(e.responseHeadersFull || e.responseHeaders)}
+      <h4>Headers</h4>${kv(e.responseHeaders)}
       <h4>Timing</h4>${pre(e.responseTiming || {})}
       <h4>Security</h4>${pre(e.securityDetails || e.securityState || '')}
     </div>
     <div id="paneCookies" hidden>
       <h4>Request cookies</h4>${pre(e.requestCookies || [])}
       <h4>Set-Cookie (response)</h4>${pre(e.responseCookies || [])}
-      <h4>Blocked cookies</h4>${pre(e.blockedCookies || [])}
+      <h4>Blocked request cookies</h4>${pre(e.blockedRequestCookies || [])}
+      <h4>Blocked response cookies</h4>${pre(e.blockedCookies || [])}
     </div>
     <div id="paneBody" hidden>
       <h4>Response body${e.responseBase64Encoded?' (base64 encoded)':''}</h4>
-      ${pre(e.responseBody ? (e.responseBody.length > 80000 ? e.responseBody.slice(0,80000) + `\n…(${e.responseBody.length} chars total)` : e.responseBody) : '(none)')}
+      ${pre(e.responseBody ? (e.responseBody.length > 80000 ? e.responseBody.slice(0,80000) + `\n…(${e.responseBody.length} chars total)` : e.responseBody) : (e.responseBodyError ? 'Not available: ' + e.responseBodyError : '(none)'))}
     </div>
     <div id="paneRaw" hidden>${pre(e)}</div>
   `;

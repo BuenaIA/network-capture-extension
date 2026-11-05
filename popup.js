@@ -67,6 +67,9 @@ async function refreshState() {
   let label = 'Idle', cls = 'idle';
   if (s.capturing && !s.paused) { label = 'Recording'; cls = 'rec'; }
   else if (s.paused) { label = 'Paused'; cls = 'paused'; }
+  // Bodies are kept in memory up to a limit; say so instead of silently dropping them
+  if (s.bodiesSkipped) label += ` · ${s.bodiesSkipped} bodies skipped (memory limit)`;
+  if (s.lostEntries) label += ` · ${s.lostEntries} requests not stored`;
   ui.status.textContent = label;
   ui.dot.className = 'dot ' + cls;
 
@@ -98,9 +101,15 @@ async function refreshState() {
 }
 
 async function refreshList() {
-  const { requests } = await send('GET_REQUESTS');
+  const { requests } = await send('GET_REQUEST_LIST');
   cachedRequests = requests || [];
   renderList();
+}
+
+// The list holds summaries only; the full entry (headers, bodies) is fetched on click
+async function fullRequest(summary) {
+  const { request } = await send('GET_REQUEST', { id: summary.id });
+  return request || summary;
 }
 
 function statusClass(code) {
@@ -116,9 +125,7 @@ function renderList() {
   const tf = ui.typeFilter.value;
   const mf = ui.methodFilter.value;
   ui.list.innerHTML = '';
-  const sorted = cachedRequests.slice().sort((a, b) =>
-    (a.requestTime || a.capturedAt || 0) - (b.requestTime || b.capturedAt || 0)
-  );
+  const sorted = cachedRequests.slice().sort((a, b) => (a.seq || 0) - (b.seq || 0));
   let shown = 0;
   for (const e of sorted) {
     if (tf && e.resourceType !== tf) continue;
@@ -140,7 +147,7 @@ function renderList() {
       <span class="u" title="${(e.url || '').replace(/"/g,'&quot;')}">${host}${path}</span>
       <span class="t">${e.duration ? Math.round(e.duration) + 'ms' : ''}</span>
     `;
-    row.addEventListener('click', () => toggleDetail(row, e));
+    row.addEventListener('click', async () => toggleDetail(row, await fullRequest(e)));
     ui.list.appendChild(row);
     if (shown >= 200) break; // cap UI
   }
