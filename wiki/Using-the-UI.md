@@ -10,10 +10,23 @@ Compact, always-on-top, perfect for quick captures.
 | **Status bar** | Shows `Idle / Recording / Paused` and the version badge |
 | **Stats** | Live request count, elapsed timer, total bytes, start time |
 | **Controls** | `● Start` · `‖ Pause` · `■ Stop` · `Clear` |
+| **Capture whole site** | One click: visits the pages of the current site in a new window and downloads the ZIP. Options for pages, depth, links per page and menus. See below |
 | **Download** | `⬇ ZIP` · `⬇ JSON` · `⬇ HAR` · `⬇ CSV` |
 | **Target site** | URL + buttons: `Open / focus tab` · `Reload` · `Hard reload` · `Clear cookies` · `Clear cache` |
 | **Filter bar** | Text filter + type dropdown + method dropdown |
 | **Live list** | Latest 200 requests; click any row to expand its JSON |
+
+### Capture whole site
+Click **Capture whole site** while the site you want is the active tab. After a confirmation (it names the site, says forms are never submitted, and warns if it will replace a capture you have not exported) the extension:
+
+1. opens a **new window** and starts recording — your own tab is not touched;
+2. visits the pages of the same origin **with your browser session**, opening hover and click menus on the way;
+3. shows a **progress window**: pages visited and queued, requests, data, elapsed time, the page being visited and the last pages visited. Close it any time; **Show crawl progress** brings it back and the crawl keeps going;
+4. stops the capture and **downloads the ZIP**, which includes `site-schema.md` with the map of the pages.
+
+In the progress window, **Stop and save** ends early and keeps what was visited; **Cancel and discard** throws everything away. Closing the crawl window by hand, or pressing **Stop** in the popup, also saves what was captured.
+
+**Forms are never submitted.** The crawl does not click inside forms, cancels every `submit` event, and neutralises `form.submit()` and `requestSubmit()` in every page and iframe before the page's own scripts run. It also skips logout and delete links and links with `data-method` other than GET. The progress window counts the submissions it blocked.
 
 ## 2. Full panel (`Open full panel ↗`)
 Splits the screen 50/50 — left list, right detail. Detail has tabs:

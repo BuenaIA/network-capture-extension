@@ -85,6 +85,19 @@ The capture lives as long as the browser is open: closing the browser (or reload
 - **DevTools cache:** if Chrome has already evicted a body (`evicted from inspector cache`), the request is kept and the reason is recorded.
 - **A single body near 64 MiB:** too big for one extension message, so the request is stored without that body.
 
+## 🕸 Capture whole site
+
+The crawler lives in [crawl.js](../crawl.js), loaded into the service worker with `importScripts`, because a crawl is a capture that also drives the tab:
+
+1. A new window is created and the normal capture is started on its tab (`startCapture`).
+2. The same debugger session is used for `Page.navigate`, `Runtime.evaluate` (links, menu triggers) and `Input.dispatchMouseEvent` (hover). Nothing is injected into pages except a guard.
+3. **The guard** is added with `Page.addScriptToEvaluateOnNewDocument`, so it runs before any page script in every frame: it cancels `submit` in the capture phase and replaces `HTMLFormElement.prototype.submit` and `requestSubmit`. Cancelling the event alone is not enough, because `form.submit()` does not fire it.
+4. Per page: navigate, wait for `Page.loadEventFired` plus a settle time, collect links, open menus (hover; click only elements that are not links, not inside a form, and not labelled with a destructive word), queue links (start page: all new ones; deeper pages: `deepLinks`).
+5. JavaScript dialogs are answered so they cannot block the page (`confirm` is answered *no*), file downloads are refused, and tabs the site opens are closed.
+6. At the end: `finishCapture`, close the window, store the list of pages as the crawl report, and `downloadAll('zip')`. The report becomes `site-schema.md`.
+
+State lives in the service worker (kept alive by the same offscreen ping used for captures). The progress window ([crawl.html](../crawl.html), [crawl-ui.js](../crawl-ui.js)) only polls `CRAWL_STATE` every 500 ms and sends `CRAWL_STOP` or `CRAWL_CANCEL`, so closing it never affects the crawl. `tools/crawl-capture.js` is a thin launcher that opens a browser with the extension and sends the same `CRAWL_START`.
+
 ## 🧩 File responsibilities
 
 | File | Lines | Responsibility |
@@ -93,6 +106,8 @@ The capture lives as long as the browser is open: closing the browser (or reload
 | `background.js` | 640 | CDP attach/detach, event handler, closing each request, settings persistence, message router, downloads orchestration, browsingData |
 | `offscreen.js` | 500 | The in-memory capture, ZIP/HAR/CSV/JSON generators, blob creation |
 | `common.js` | 30 | Helpers shared by the service worker and the offscreen document |
+| `crawl.js` | 330 | "Capture whole site": link policy, menus, form guard, crawl lifecycle |
+| `crawl.html / .css / crawl-ui.js` | 230 | Progress window of the crawl |
 | `offscreen.html` | 4 | Minimal host for offscreen scripts |
 | `zip.js` | 170 | Streaming STORE-method ZIP writer with zip64 |
 | `popup.html / .css / .js` | 350 | Compact toolbar UI |

@@ -31,6 +31,19 @@
     <button id="clearBtn" class="btn ghost">Clear</button>
   </section>
 
+  <section class="crawl">
+    <button id="crawlBtn" class="btn primary wide">Capture whole site</button>
+    <button id="crawlShowBtn" class="btn wide" hidden>Show crawl progress</button>
+    <details class="crawl-opts">
+      <summary>Options</summary>
+      <label>Max pages <input id="crawlMaxPages" type="number" min="1" max="2000" /></label>
+      <label>Max depth <input id="crawlMaxDepth" type="number" min="0" max="10" /></label>
+      <label>Links per sub-page <input id="crawlDeepLinks" type="number" min="0" max="20" /></label>
+      <label class="check"><input id="crawlMenus" type="checkbox" /> Open menus</label>
+    </details>
+    <p class="crawl-hint">Visits the pages of this site in a new window, with your session, and downloads a ZIP. Forms are never submitted.</p>
+  </section>
+
   <section class="dlrow">
     <div class="dlrow-title">Download</div>
     <div class="dlrow-buttons">

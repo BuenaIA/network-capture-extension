@@ -11,6 +11,8 @@ const ui = {
   targetUrl: $('targetUrl'),
   openSite: $('openSite'), reloadSite: $('reloadSite'), hardReload: $('hardReload'),
   clearCookies: $('clearCookies'), clearCache: $('clearCache'),
+  crawlBtn: $('crawlBtn'), crawlShowBtn: $('crawlShowBtn'), crawlMenus: $('crawlMenus'),
+  crawlMaxPages: $('crawlMaxPages'), crawlMaxDepth: $('crawlMaxDepth'), crawlDeepLinks: $('crawlDeepLinks'),
 };
 
 let timerHandle = null;
@@ -65,7 +67,8 @@ async function refreshState() {
   ui.timer.textContent = fmtElapsed(s.startTime, s.endTime);
 
   let label = 'Idle', cls = 'idle';
-  if (s.capturing && !s.paused) { label = 'Recording'; cls = 'rec'; }
+  if (s.crawling) { label = 'Crawling site'; cls = 'rec'; }
+  else if (s.capturing && !s.paused) { label = 'Recording'; cls = 'rec'; }
   else if (s.paused) { label = 'Paused'; cls = 'paused'; }
   // Bodies are kept in memory up to a limit; say so instead of silently dropping them
   if (s.bodiesSkipped) label += ` · ${s.bodiesSkipped} bodies skipped (memory limit)`;
@@ -76,6 +79,10 @@ async function refreshState() {
   ui.startBtn.disabled = s.capturing;
   ui.pauseBtn.disabled = !s.capturing;
   ui.stopBtn.disabled  = !s.capturing;
+  // A crawl is a capture of its own: only one at a time, and its progress has its own window
+  ui.crawlBtn.hidden = !!s.crawling;
+  ui.crawlBtn.disabled = s.capturing;
+  ui.crawlShowBtn.hidden = !s.crawling;
   ui.pauseBtn.textContent = s.paused ? '▶ Resume' : '‖ Pause';
 
   // determine the "target" URL — captured tab if available, else current active tab
@@ -264,6 +271,53 @@ ui.reloadSite.addEventListener('click', async () => { await send('RELOAD_TARGET'
 ui.hardReload.addEventListener('click', async () => { await send('RELOAD_TARGET', { bypassCache: true }); flash('✓ Hard reloaded'); });
 ui.clearCookies.addEventListener('click', () => clearSite('cookies'));
 ui.clearCache  .addEventListener('click', () => clearSite('cache'));
+
+// ---------- capture whole site ----------
+const CRAWL_OPTS_KEY = 'ncp_crawl_opts';
+const CRAWL_NUMBERS = { maxPages: ui.crawlMaxPages, maxDepth: ui.crawlMaxDepth, deepLinks: ui.crawlDeepLinks };
+const CRAWL_UI_DEFAULTS = { maxPages: 200, maxDepth: 5, deepLinks: 1, menus: true };
+
+function readCrawlOptions() {
+  const options = { menus: ui.crawlMenus.checked };
+  for (const [key, input] of Object.entries(CRAWL_NUMBERS)) options[key] = Number(input.value);
+  return options;
+}
+
+async function loadCrawlOptions() {
+  let saved = {};
+  try { saved = (await chrome.storage.local.get(CRAWL_OPTS_KEY))[CRAWL_OPTS_KEY] || {}; } catch {}
+  const options = { ...CRAWL_UI_DEFAULTS, ...saved };
+  for (const [key, input] of Object.entries(CRAWL_NUMBERS)) input.value = options[key];
+  ui.crawlMenus.checked = options.menus;
+}
+
+for (const el of [...Object.values(CRAWL_NUMBERS), ui.crawlMenus]) {
+  el.addEventListener('change', () => chrome.storage.local.set({ [CRAWL_OPTS_KEY]: readCrawlOptions() }).catch(() => {}));
+}
+
+ui.crawlBtn.addEventListener('click', async () => {
+  // The site to crawl is the page this window is showing, not the last captured tab
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let url;
+  try {
+    url = new URL(tab && tab.url);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('not a web page');
+  } catch {
+    alert('Open the site you want to capture in this window first (an http or https page).');
+    return;
+  }
+  const options = readCrawlOptions();
+  const existing = lastState ? lastState.count : 0;
+  const replaces = existing ? `\n\nThis replaces the ${existing} requests currently captured. Download them first if you need them.` : '';
+  const question = `Capture ${url.hostname}?\n\nIt will visit up to ${options.maxPages} pages of this site in a new window, using your session, and download a ZIP. Forms are never submitted.${replaces}\n\nOnly do this on sites you own or are authorized to test.`;
+  if (!confirm(question)) return;
+  ui.crawlBtn.disabled = true;
+  const res = await send('CRAWL_START', { url: url.href, options: { ...options, replace: true } });
+  if (!res || !res.ok) alert('Could not start the crawl: ' + (res && res.error));
+  await refreshAll();
+});
+ui.crawlShowBtn.addEventListener('click', () => send('CRAWL_SHOW'));
+loadCrawlOptions();
 
 async function refreshAll() {
   await refreshState();

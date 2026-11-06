@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Capturing site</title>
+  <link rel="stylesheet" href="theme.css" />
+  <link rel="stylesheet" href="crawl.css" />
+</head>
+<body>
+  <header class="hdr">
+    <img class="brand-logo" src="assets/logo-b.svg" width="20" height="26" alt="BuenaIA" />
+    <div class="hdr-text">
+      <div class="title">Capturing whole site</div>
+      <div class="host" id="host">-</div>
+    </div>
+  </header>
+
+  <section class="progress">
+    <div class="phase" id="phase">Starting…</div>
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <div class="bar-text" id="barText">0 pages</div>
+  </section>
+
+  <section class="stats">
+    <div class="stat"><span class="lbl">Pages</span><span class="val" id="visited">0</span></div>
+    <div class="stat"><span class="lbl">In queue</span><span class="val" id="queued">0</span></div>
+    <div class="stat"><span class="lbl">Requests</span><span class="val" id="requests">0</span></div>
+    <div class="stat"><span class="lbl">Data</span><span class="val" id="bytes">0 B</span></div>
+    <div class="stat"><span class="lbl">Elapsed</span><span class="val" id="elapsed">00:00</span></div>
+    <div class="stat"><span class="lbl">Menus opened</span><span class="val" id="menus">0</span></div>
+  </section>
+
+  <section class="block">
+    <div class="lbl">Now visiting</div>
+    <div class="current" id="current">-</div>
+  </section>
+
+  <section class="block grow">
+    <div class="lbl">Recent pages</div>
+    <ol class="recent" id="recent"></ol>
+  </section>
+
+  <section class="note" id="note">
+    Read-only crawl: forms are never submitted<span id="blocked"></span>. It uses the session of this browser.
+  </section>
+
+  <section class="result" id="result" hidden></section>
+
+  <footer class="ftr">
+    <button id="stopBtn" class="btn primary">Stop and save</button>
+    <button id="cancelBtn" class="btn ghost">Cancel and discard</button>
+    <button id="closeBtn" class="btn" hidden>Close</button>
+  </footer>
+
+  <script src="crawl-ui.js"></script>
+</body>
+</html>

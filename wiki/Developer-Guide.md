@@ -33,6 +33,11 @@ background.js        → service worker (state, CDP, message routing)
   ├─ ensureOffscreen() → lazy-spawns offscreen doc
   └─ downloadAll()     → orchestrates the export flow
 
+crawl.js             → "Capture whole site" (loaded by importScripts)
+  ├─ acceptLink() / linksToQueue() → pure link policy (unit tested)
+  ├─ FORM_GUARD        → script that makes forms impossible to submit
+  └─ startCrawl() / runCrawl() / finishCrawl()
+
 offscreen.js         → the capture (in memory) + streaming exports
   ├─ store             → finished requests, kept in memory
   ├─ harParts() / csvParts() / indexHtmlParts() → generators of file pieces

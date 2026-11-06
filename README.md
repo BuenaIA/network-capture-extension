@@ -30,6 +30,7 @@ Las DevTools de Chrome muestran las peticiones de red mientras las tienes abiert
 | 🎛️ **Controles en directo** | Start, Pause, Resume, Stop y Clear, con contador de peticiones, bytes y tiempo transcurrido |
 | 📦 **Exportación** | **ZIP** (paquete completo con `index.html` navegable), **JSON**, **HAR** 1.2 y **CSV** |
 | 🔍 **Filtros** | Por URL, método, estado, MIME o tipo de recurso; los mismos filtros en popup y panel |
+| 🕸 **Capturar todo el sitio** | Un botón en el popup recorre las páginas del sitio en una ventana nueva, con tu sesión, y descarga el ZIP al terminar, con un diálogo de progreso. **Nunca envía formularios** |
 | 🪟 **Tres interfaces** | Popup compacto, panel de pantalla completa y pestaña dentro de DevTools |
 | 🍪 **Herramientas del sitio** | Borrar cookies y caché solo del origen capturado |
 | 💾 **Solo en memoria** | La captura vive en la memoria de la extensión mientras el navegador esté abierto: no escribe en disco ni en IndexedDB, y sobrevive a que Chrome duerma el service worker. Al cerrar el navegador se pierde, así que exporta antes |
@@ -102,9 +103,36 @@ Cada registro de `requests/` agrupa lo que importa y omite lo que no hay: `reque
 
 </details>
 
-## Captura automática de un sitio
+## Capturar todo el sitio
 
-`tools/crawl-capture.js` abre el sitio en Brave (o Chrome), recorre sus páginas del mismo origen con la extensión grabando y guarda el ZIP. No tiene dependencias y necesita Node 22 o superior.
+Pulsa el icono de la extensión en la página que quieres capturar y después **Capture whole site**. La extensión:
+
+1. Abre una **ventana nueva** (tu pestaña no se toca) y empieza a grabar.
+2. Recorre las páginas del mismo origen **con tu sesión** del navegador, así que no hace falta iniciar sesión aparte.
+3. Muestra un **diálogo de progreso**: páginas visitadas y en cola, peticiones, datos, tiempo, la página actual y las últimas visitadas. Se puede cerrar y reabrir con **Show crawl progress**; el rastreo sigue.
+4. Al terminar para la captura y **descarga el ZIP** (con `site-schema.md`, el mapa de páginas).
+
+En el diálogo, **Stop and save** termina antes y guarda lo recorrido; **Cancel and discard** lo descarta todo. Si cierras la ventana del rastreo o paras la captura desde el popup, también se guarda lo que había.
+
+**Opciones** (en el popup, se recuerdan): páginas máximas (200), profundidad (5), enlaces por subpágina (1) y abrir menús. La página inicial sigue todos sus enlaces nuevos; cada página por debajo, solo los indicados. Con menús activados pasa el ratón y pulsa los elementos de navegación que despliegan opciones. Además se detiene a los 30 minutos.
+
+### No envía formularios
+
+El rastreo es de solo lectura, y no depende de "no pulsar" sino de tres capas:
+
+- No hace click dentro de un `<form>` ni en botones con `formaction`, y evita etiquetas como *Eliminar*, *Pagar*, *Enviar*, *Guardar* o *Log out*.
+- En cada página y en cada iframe se cancela el evento `submit` y se anulan `form.submit()` y `requestSubmit()` antes de que corra ningún script de la página. Esto cubre los formularios que se envían solos. El diálogo cuenta los envíos bloqueados.
+- Ignora enlaces de cierre de sesión o borrado (`logout`, `delete`, `remove`, `unsubscribe`…), enlaces con `data-method` distinto de GET (los que simulan POST o DELETE), descargas y ficheros binarios.
+
+Comprobado en un navegador real con un sitio que intenta enviar formularios de todas las formas: el servidor recibió únicamente peticiones GET.
+
+Lo que **no** puede garantizar: un menú o botón con una etiqueta inocente cuyo código haga una petición POST por su cuenta (no es un formulario). Por eso el botón pide confirmación, y conviene usarlo solo en sitios propios o con autorización: rastrear un sitio genera mucho tráfico.
+
+Si ya hay una captura sin exportar, el botón avisa de que la reemplaza. Un rastreo siempre es una sesión nueva.
+
+### Desde la terminal
+
+`tools/crawl-capture.js` ejecuta ese mismo rastreo sin tocar tu navegador: abre Brave o Chrome con un perfil aparte y la extensión cargada desde el repo, y guarda el ZIP en una carpeta. No tiene dependencias y necesita Node 22 o superior. No está en el ZIP de la extensión, solo en el repo.
 
 ```bash
 # Con inicio de sesión: se abre el navegador, inicias sesión y pulsas Enter; después rastrea en esa misma ejecución
@@ -114,16 +142,17 @@ node tools/crawl-capture.js https://intranet.ejemplo.com/login --login --max-pag
 node tools/crawl-capture.js https://intranet.ejemplo.com/ --max-pages 300 --max-depth 6
 ```
 
-El perfil se guarda en `~/.network-capture-profiles/<dominio>`, así que cada sitio tiene su propia sesión.
+El perfil se guarda en `~/.network-capture-profiles/<dominio>`, así que cada sitio tiene su propia sesión. Opciones: `--browser <ruta>` (por defecto Brave y después Chrome), `--profile <dir>`, `--out <dir>`, `--format zip|json|har|csv`, `--max-pages <n>`, `--max-depth <n>`, `--deep-links <n>`, `--no-menus`, `--headless`, `--settle <ms>`.
 
-Opciones principales: `--browser <ruta>` (por defecto Brave y después Chrome), `--profile <dir>`, `--out <dir>`, `--format zip|json|har|csv`, `--max-pages <n>`, `--max-depth <n>`, `--deep-links <n>`, `--no-menus`, `--headless`, `--settle <ms>`.
-
-- **Sesiones:** el perfil conserva las cookies persistentes (las de "recordarme" o con fecha de caducidad), así que en esos sitios basta con iniciar sesión una vez con `--login`. Las cookies de sesión sin caducidad las borra el navegador al cerrarse: en esos sitios hay que usar `--login` en cada ejecución.
+- **Sesiones:** el perfil conserva las cookies persistentes (las de "recordarme" o con fecha de caducidad), así que en esos sitios basta con iniciar sesión una vez con `--login`. Las cookies de sesión sin caducidad las borra el navegador al cerrarse: en esos sitios hay que usar `--login` en cada ejecución. Las peticiones del propio inicio de sesión no entran en la captura.
 - **Limpieza:** al terminar borra las cachés y los volcados de fallo del perfil (conserva cookies y sesión) y no deja descargas a medias ni rastro de la exportación en el historial del navegador. Lo único que queda es el ZIP en `--out`.
 - **Si el navegador se cae** (por ejemplo, por falta de memoria) aborta enseguida con un mensaje claro en vez de quedarse esperando.
-- **Qué no sigue:** enlaces de otros dominios, enlaces de cierre de sesión (`logout`, `salir`, `cerrar-sesion`) y ficheros binarios como imágenes, CSS o JS.
-- **Limitaciones:** solo sigue enlaces `<a href>` del HTML; las aplicaciones que navegan solo con JavaScript no se recorren completas.
-- Usa la herramienta solo en sitios que sean tuyos o para los que tengas autorización: rastrear un sitio genera mucho tráfico.
+
+### Limitaciones del rastreo
+
+- Solo sigue enlaces `<a href>` del HTML y los que aparecen al abrir menús; las aplicaciones que navegan solo con JavaScript no se recorren completas.
+- Una sola ventana de rastreo a la vez, y no se puede lanzar mientras haya una captura manual en curso.
+- Un sitio con detección de automatización puede bloquearlo.
 
 ## Casos de uso
 
@@ -170,7 +199,9 @@ Vanilla HTML, CSS y JavaScript, sin frameworks, bundler ni paso de compilación.
 ├─ popup.html / .css / .js ← UI compacta de la barra de herramientas
 ├─ panel.html / panel.js  ← panel de pantalla completa con pestañas de detalle
 ├─ devtools.html / .js    ← registra la pestaña dentro de DevTools
-├─ tools/crawl-capture.js ← rastreo automático de un sitio con Brave o Chrome
+├─ crawl.js               ← motor de "Capture whole site": enlaces, menús y guarda anti-formularios
+├─ crawl.html / .css / crawl-ui.js ← diálogo de progreso del rastreo
+├─ tools/crawl-capture.js ← lanza el rastreo desde la terminal con Brave o Chrome
 ├─ assets/                ← identidad visual BuenaIA
 └─ wiki/                  ← documentación detallada (fuente de la wiki del repo)
 ```

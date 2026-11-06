@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-// Crawls a site in a real browser while Network Capture Extension records every request,
-// then saves the capture as a ZIP. Runs with Node 22+ and has no dependencies.
+// Runs "Capture whole site" from the terminal: opens Brave or Chrome with the extension loaded,
+// starts the extension's own crawler, waits for it and saves the capture. The crawling itself
+// (links, menus, never submitting forms) is done by the extension, in crawl.js; this script
+// only launches the browser, keeps the login session, and collects the ZIP.
+// Runs with Node 22+ and has no dependencies.
 //
 //   node tools/crawl-capture.js <startUrl> [options]
-//   node tools/crawl-capture.js <startUrl> --login     (log in once; the profile keeps the session)
+//   node tools/crawl-capture.js <startUrl> --login     (log in first; the profile keeps the session)
 //
 // Options:
 //   --browser <path>     Chrome or Brave binary (default: Brave, then Chrome)
@@ -17,10 +20,6 @@
 //   --settle <ms>        Wait after each page load for XHR/fetch to finish (default: 1500)
 //   --headless           Run without a visible window (login needs a visible window)
 //   --port <n>           Remote debugging port (default: 9333)
-//
-// Crawl policy: the start page gives every new link it has; each page below it gives
-// only --deep-links of them. The report of visited pages is sent to the extension and
-// goes into site-schema.md / site-schema.json inside the ZIP.
 
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -33,9 +32,7 @@ const BROWSERS = [
   '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 ];
-// Links that would end the session or point to binary files are not followed
-const SKIP_PATH = /(logout|log-out|signout|sign-out|salir|cerrar-sesion)/i;
-const SKIP_FILE = /\.(jpe?g|png|gif|webp|svg|ico|css|js|mp3|mp4|webm|woff2?|ttf|zip|gz|exe|dmg)$/i;
+const POLL_MS = 1000;
 
 // ---------- options ----------
 
@@ -105,6 +102,7 @@ function loadExtension(browserProcess, dir) {
 // ---------- DevTools protocol over WebSocket ----------
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const BROWSER_GONE = 'the browser closed the connection (it probably crashed or ran out of memory); nothing was saved';
 
 async function getJson(port, route) {
   const res = await fetch(`http://127.0.0.1:${port}${route}`);
@@ -123,14 +121,11 @@ async function waitFor(fn, label, timeoutMs = 60000) {
   }
 }
 
-const BROWSER_GONE = 'the browser closed the connection (it probably crashed or ran out of memory); nothing was saved';
-
 function connect(wsUrl) {
   const ws = new WebSocket(wsUrl);
   let nextId = 0;
   let closed = false;
   const pending = new Map();
-  const listeners = new Map();
   // A dead browser never answers: fail every call that is waiting instead of hanging forever
   ws.onclose = () => {
     closed = true;
@@ -144,8 +139,6 @@ function connect(wsUrl) {
       pending.delete(msg.id);
       if (msg.error) reject(new Error(JSON.stringify(msg.error)));
       else resolve(msg.result);
-    } else if (msg.method && listeners.has(msg.method)) {
-      listeners.get(msg.method).forEach(fn => fn(msg.params));
     }
   };
   return {
@@ -162,13 +155,6 @@ function connect(wsUrl) {
       if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails).slice(0, 500));
       return result.result.value;
     },
-    // Resolves with the next event of this method, or rejects after timeoutMs
-    nextEvent(method, timeoutMs) {
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('timed out waiting for ' + method)), timeoutMs);
-        listeners.set(method, [params => { clearTimeout(timer); resolve(params); }]);
-      });
-    },
     close() { ws.close(); }
   };
 }
@@ -181,125 +167,34 @@ async function openTarget(port, browserWs, url) {
   }, 'tab ' + url).then(async client => { await client.ready; return client; });
 }
 
-// ---------- crawl ----------
+// ---------- the crawl, run by the extension ----------
 
-// Elements that usually open a menu. Hovering them shows CSS-only menus; clicking them
-// shows script-driven menus. Links with a real href are hovered but never clicked, so
-// the crawl follows them as normal pages.
-const MENU_TRIGGERS = [
-  '[aria-haspopup]', '[aria-expanded="false"]', 'summary', '[role="tab"]',
-  'nav button', 'nav a', 'nav li:has(> ul) > :first-child'
-].join(', ');
-// Skipped on purpose: they would submit, pay, delete or end the session
-const MENU_DANGER = /(delete|eliminar|borrar|remove|logout|log out|salir|cerrar sesi|pagar|pay|buy|comprar|checkout|enviar|send|submit)/i;
-const MAX_MENU_ACTIONS = 30;
-const MENU_DELAY_MS = 300;
-
-async function findMenuTriggers(page) {
-  return page.eval(`(() => {
-    document.querySelectorAll('[data-ncp-menu]').forEach(el => el.removeAttribute('data-ncp-menu'));
-    const danger = ${MENU_DANGER};
-    const triggers = [];
-    for (const el of document.querySelectorAll(${JSON.stringify(MENU_TRIGGERS)})) {
-      // Inside a form a button can submit it, so those are skipped. Note: button.type is
-      // "submit" by default even outside forms, so it cannot be used to tell them apart.
-      if (el.closest('form') || el.disabled) continue;
-      const label = (el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 80);
-      if (danger.test(label)) continue;
-      const box = el.getBoundingClientRect();
-      if (!box.width || !box.height) continue;
-      const index = triggers.length;
-      el.setAttribute('data-ncp-menu', String(index));
-      const href = el.tagName === 'A' ? el.getAttribute('href') : null;
-      triggers.push({ index, x: box.x + box.width / 2, y: box.y + box.height / 2, isLink: !!href && href !== '#' });
-      if (triggers.length >= ${MAX_MENU_ACTIONS}) break;
-    }
-    return triggers;
-  })()`);
-}
-
-async function openTrigger(page, trigger) {
-  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: trigger.x, y: trigger.y });
-  await sleep(MENU_DELAY_MS / 2);
-  if (trigger.isLink) return;
-  await page.eval(`document.querySelector('[data-ncp-menu="${trigger.index}"]')?.click()`);
-}
-
-// Links of the current page, plus the links that appear when its menus are opened
-async function collectLinks(page, origin, pageUrl, opts) {
-  const links = new Set(await extractLinks(page, origin, pageUrl));
-  let menusOpened = 0;
-  if (opts.menus) {
-    for (const trigger of await findMenuTriggers(page)) {
-      await openTrigger(page, trigger);
-      menusOpened++;
-      await sleep(MENU_DELAY_MS);
-      if ((await page.eval('location.href')) !== pageUrl) break;  // a click navigated away
-      for (const link of await extractLinks(page, origin, pageUrl)) links.add(link);
-    }
+// Prints the pages the extension has visited since the last call
+function printProgress(state, printed) {
+  const fresh = Math.min(state.visited - printed, state.recent.length);
+  for (const page of state.recent.slice(0, fresh).reverse()) {
+    console.log(`  [${++printed}] depth ${page.depth}  menus ${page.menus || 0}  ${page.url}${page.error ? '  (' + page.error + ')' : ''}`);
   }
-  return { links: [...links], menusOpened };
+  return Math.max(printed, state.visited);
 }
 
-function normalize(href) {
-  const url = new URL(href);
-  url.hash = '';
-  return url.href;
-}
-
-async function extractLinks(page, origin, baseUrl) {
-  const hrefs = await page.eval('Array.from(document.querySelectorAll("a[href]"), a => a.href)');
-  const links = new Set();
-  for (const href of hrefs) {
-    let url;
-    try { url = new URL(href, baseUrl); } catch { continue; }
-    if (url.origin !== origin || SKIP_PATH.test(url.pathname) || SKIP_FILE.test(url.pathname)) continue;
-    links.add(normalize(url.href));
-  }
-  return [...links];
-}
-
-async function loadPage(page, url, settle) {
-  const loaded = page.nextEvent('Page.loadEventFired', 30000);
-  await page.send('Page.navigate', { url });
-  await loaded.catch(() => {});  // slow pages are still recorded; move on after the timeout
-  await sleep(settle);
-  return page.eval('location.href');
-}
-
-// Returns one record per visited page, in visit order, for the capture report
-async function crawl(page, opts) {
-  const origin = new URL(opts.startUrl).origin;
-  const queue = [{ url: opts.startUrl, depth: 0, parent: null }];
-  const seen = new Set([normalize(opts.startUrl)]);
-  const pages = [];
-  while (queue.length && pages.length < opts.maxPages) {
-    const item = queue.shift();
-    const startedAt = Date.now();
-    const finalUrl = await loadPage(page, item.url, opts.settle);
-    seen.add(normalize(finalUrl));  // redirects end on another URL; never queue that one again
-    const { links, menusOpened } = await collectLinks(page, origin, finalUrl, opts);
-    const title = await page.eval('document.title').catch(() => '');
-    pages.push({ url: finalUrl, title, depth: item.depth, parent: item.parent, startedAt, endedAt: Date.now(), links: links.length, menusOpened });
-    console.log(`  [${pages.length}] depth ${item.depth}  links ${links.length}  menus ${menusOpened}  ${finalUrl}`);
-    if (item.depth >= opts.maxDepth) continue;
-    const fresh = links.filter(link => !seen.has(link));
-    // Start page: every new link. Pages below it: only the first --deep-links new ones.
-    const take = item.depth === 0 ? fresh.length : opts.deepLinks;
-    for (const link of fresh.slice(0, take)) {
-      seen.add(link);
-      queue.push({ url: link, depth: item.depth + 1, parent: finalUrl });
+async function runCrawl(send, opts) {
+  await send({
+    type: 'CRAWL_START',
+    url: opts.startUrl,
+    options: {
+      maxPages: opts.maxPages, maxDepth: opts.maxDepth, deepLinks: opts.deepLinks,
+      menus: opts.menus, settleMs: opts.settle, autoExport: false, showProgress: false, replace: true
     }
-  }
-  return pages;
-}
+  }).then(reply => { if (!reply || !reply.ok) throw new Error(reply && reply.error || 'could not start the crawl'); });
 
-function buildReport(opts, pages) {
-  return {
-    startUrl: opts.startUrl,
-    options: { maxPages: opts.maxPages, maxDepth: opts.maxDepth, deepLinks: opts.deepLinks, menus: opts.menus, settle: opts.settle },
-    pages
-  };
+  let printed = 0;
+  for (;;) {
+    const state = await send({ type: 'CRAWL_STATE' });
+    printed = printProgress(state, printed);
+    if (!['starting', 'running', 'finishing'].includes(state.status)) return state;
+    await sleep(POLL_MS);
+  }
 }
 
 // ---------- capture export ----------
@@ -380,27 +275,26 @@ async function main() {
     await browserWs.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: opts.out });
 
     const ctrl = await openTarget(opts.port, browserWs, `chrome-extension://${extensionId}/popup.html`);
-    const page = await openTarget(opts.port, browserWs, opts.startUrl);
-    await page.send('Page.enable');
-    const tabId = await waitFor(() => ctrl.eval(`chrome.tabs.query({ url: ${JSON.stringify(new URL(opts.startUrl).origin + '/*')} }).then(t => t[0] && t[0].id)`), 'tab id');
-    const send = msg => ctrl.eval(`chrome.runtime.sendMessage(${JSON.stringify(msg)})`);
+    const send = msg => ctrl.eval(`chrome.runtime.sendMessage(${JSON.stringify({ target: 'background', ...msg })})`);
 
-    // Capture starts before login, so the login requests are part of the capture too
-    console.log('capture started');
-    await send({ type: 'START', tabId });
     if (opts.login) {
+      // The crawl uses the cookies of this browser, so logging in on any tab is enough
+      const loginPage = await openTarget(opts.port, browserWs, opts.startUrl);
       await waitForEnter('Log in in the browser window, then press Enter here to start crawling.');
+      loginPage.close();
       console.log('crawling with the new session');
     }
-    const pages = await crawl(page, opts);
-    await send({ type: 'STOP' });
-    await send({ type: 'SET_CRAWL_REPORT', report: buildReport(opts, pages) });
-    const state = await send({ type: 'GET_STATE' });
-    console.log(`crawled ${pages.length} pages, ${state.count} requests, ${(state.bytes / 1048576).toFixed(1)} MiB`);
+
+    console.log('crawl started');
+    const result = await runCrawl(send, opts);
+    if (result.status === 'cancelled') throw new Error('the crawl was cancelled; nothing was saved');
+    if (result.status === 'error' && !result.visited) throw new Error(result.error);
+    if (result.error) console.log('warning:', result.error);
+    console.log(`crawled ${result.visited} pages (${result.reason}), ${result.requests} requests, ${(result.bytes / 1048576).toFixed(1)} MiB, ${result.menusOpened} menus opened, ${result.formsBlocked} form submissions blocked`);
 
     const file = await exportCapture(ctrl, opts);
     console.log('saved', file);
-    ctrl.close(); page.close();
+    ctrl.close();
   } finally {
     await closeBrowser(browserWs, browserProcess);
     cleanProfile(opts.profile);
@@ -423,11 +317,7 @@ function waitForEnter(message) {
     .finally(() => rl.close());
 }
 
-if (require.main === module) {
-  main().catch(err => {
-    console.error('error:', err.message);
-    process.exitCode = 1;
-  });
-}
-
-module.exports = { crawl };
+main().catch(err => {
+  console.error('error:', err.message);
+  process.exitCode = 1;
+});

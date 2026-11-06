@@ -5,7 +5,7 @@
 // it in memory until the capture is cleared or the browser is closed. Only a few settings go
 // to chrome.storage, and no file is ever created except the exports you download.
 
-importScripts('common.js');
+importScripts('common.js', 'crawl.js');
 
 const STATE_KEY = 'ncp_state_v2';
 // Older versions kept the whole capture in chrome.storage; those keys are removed on start
@@ -451,7 +451,8 @@ function attachError(err) {
   return err;
 }
 
-async function startCapture(tabId) {
+// options.tabUrl: the site being captured, when the tab is still blank (a crawl starts that way)
+async function startCapture(tabId, options = {}) {
   if (state.capturing) return;
   if (!tabId) tabId = await activeTabId();
   if (!tabId) throw new Error('No active tab');
@@ -476,7 +477,7 @@ async function startCapture(tabId) {
   finalized.clear();
   state.tabId = tabId;
   // A tab that is still loading reports about:blank as url; pendingUrl has the real target
-  state.tabUrl = tab.pendingUrl || tab.url;
+  state.tabUrl = options.tabUrl || tab.pendingUrl || tab.url;
   state.capturing = true;
   state.paused = false;
   state.crawlReport = null;  // a report belongs to the capture it was produced with
@@ -675,8 +676,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             lostEntries: state.lostEntries,
             tabId: state.tabId,
             tabUrl: state.tabUrl,
+            crawling: crawlRunning(),
             swVersion: chrome.runtime.getManifest().version
           });
+          break;
+        case 'CRAWL_START':
+          await startCrawl(msg.url, msg.options);
+          sendResponse({ ok: true });
+          break;
+        case 'CRAWL_STATE':
+          sendResponse(crawlSnapshot());
+          break;
+        case 'CRAWL_STOP':
+          requestCrawlStop('save');
+          sendResponse({ ok: true });
+          break;
+        case 'CRAWL_CANCEL':
+          requestCrawlStop('discard');
+          sendResponse({ ok: true });
+          break;
+        case 'CRAWL_SHOW':
+          await showCrawlProgress();
+          sendResponse({ ok: true });
           break;
         case 'GET_REQUEST_LIST': {
           const stored = await storeCall({ type: 'LIST_SUMMARIES' });

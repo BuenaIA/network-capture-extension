@@ -135,3 +135,17 @@ body {
 }
 .link { color: var(--bb-blue-hi); text-decoration: none; }
 .link:hover { text-decoration: underline; }
+
+/* Capture whole site */
+.crawl { padding: 4px 12px 8px; }
+.btn.wide { width: 100%; padding: 9px 10px; font-weight: 600; }
+.crawl .btn + .btn { margin-top: 6px; }
+.crawl-opts { margin-top: 8px; font-size: 12px; color: var(--bb-muted); }
+.crawl-opts summary { cursor: pointer; }
+.crawl-opts label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; color: var(--bb-text); }
+.crawl-opts input[type=number] {
+  width: 70px; background: var(--bb-navy); color: var(--bb-text);
+  border: 1px solid var(--bb-line); border-radius: 5px; padding: 4px 6px;
+}
+.crawl-opts label.check { justify-content: flex-start; }
+.crawl-hint { margin: 8px 0 0; font-size: 11px; color: var(--bb-muted); }
